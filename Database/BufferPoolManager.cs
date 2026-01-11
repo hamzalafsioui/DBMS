@@ -28,5 +28,18 @@ public class BufferPoolManager
         }
     }
 
+    /// <summary>
+    /// Flush dirty pages to disk if needed
+    /// </summary>
+    private DatabasePage ReadOrWriteOnDisk()
+    {
+        if (_isDirty)
+        {
+            _diskManager.Write(_database, _page);
+            _isDirty = false;
+        }
+        return _page;
+    }
+
    
 }
