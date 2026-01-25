@@ -1,4 +1,16 @@
 namespace Database;
+using System.Text.RegularExpressions;
+
+/// <summary>
+/// Represents a single WHERE condition
+/// </summary>
+public class WhereCondition
+{
+    public string Column { get; set; } = string.Empty;
+    public string Operator { get; set; } = string.Empty;
+    public string Value { get; set; } = string.Empty;
+    public string LogicalOperator { get; set; } = string.Empty; // AND or OR 
+}
 
 /// <summary>
 /// Parses SQL queries into structured objects
@@ -10,9 +22,14 @@ public class SqlParser
     public List<string> Keys { get; private set; } = new();
     public List<string> KeyTypes { get; private set; } = new();
     public List<string> Values { get; private set; } = new();
+    public List<WhereCondition> WhereConditions { get; private set; } = new();
 
     public SqlParser(string query)
     {
+        // Normalize query => add spaces around operators to ensure correct tokenization
+        // Handles cases like "age=24" or "age>=24"
+        query = Regex.Replace(query, @"(>=|<=|!=|=|>|<)", " $1 ");
+
         var tokens = query.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (tokens.Length == 0) return;
 
@@ -42,11 +59,27 @@ public class SqlParser
     /// Examples:
     ///   SELECT * FROM users;
     ///   SELECT username,age FROM users;
+    ///   SELECT * FROM users WHERE age > 20;
+    ///   SELECT username FROM users WHERE age >= 18 AND salary < 2000.0;
     /// </summary>
     private void ParseSelect(string[] tokens)
     {
-        // Table is the last token (may have semicolon)
-        Table = tokens[^1].TrimEnd(';');
+        // Find WHERE keyword if it exists
+        int whereIndex = Array.FindIndex(tokens, t => t.Equals("WHERE", StringComparison.OrdinalIgnoreCase));
+        
+        if (whereIndex > 0)
+        {
+            // Table is between FROM and WHERE
+            Table = tokens[whereIndex - 1];
+            
+            // Parse WHERE conditions
+            ParseWhereConditions(tokens, whereIndex + 1);
+        }
+        else
+        {
+            // Table is the last token (may have semicolon)
+            Table = tokens[^1].TrimEnd(';');
+        }
         
         // If not selecting all columns
         if (tokens[1] != "*")
@@ -100,6 +133,56 @@ public class SqlParser
     private void ParseDropTable(string[] tokens)
     {
         Table = tokens[2].TrimEnd(';');
+    }
+
+    /// <summary>
+    /// Parse WHERE conditions from tokens
+    /// </summary>
+    private void ParseWhereConditions(string[] tokens, int startIndex)
+    {
+        var conditionTokens = new List<string>();
+        
+        // Collect all tokens from WHERE to end of query
+        for (int j = startIndex; j < tokens.Length; j++)
+        {
+            conditionTokens.Add(tokens[j].TrimEnd(';'));
+        }
+        
+        // Parse conditions separated by AND/OR
+        int i = 0;
+        string currentLogicalOp = "";
+        
+        while (i < conditionTokens.Count)
+        {
+            // Check if current token is a logical operator
+            if (conditionTokens[i].Equals("AND", StringComparison.OrdinalIgnoreCase) || 
+                conditionTokens[i].Equals("OR", StringComparison.OrdinalIgnoreCase))
+            {
+                currentLogicalOp = conditionTokens[i].ToUpper();
+                i++;
+                continue;
+            }
+            
+            // Parse condition: column operator value
+            if (i + 2 < conditionTokens.Count)
+            {
+                var condition = new WhereCondition
+                {
+                    Column = conditionTokens[i],
+                    Operator = conditionTokens[i + 1],
+                    Value = conditionTokens[i + 2],
+                    LogicalOperator = currentLogicalOp
+                };
+                
+                WhereConditions.Add(condition);
+                i += 3;
+                currentLogicalOp = ""; // Reset for next condition
+            }
+            else
+            {
+                break;
+            }
+        }
     }
 
     /// <summary>
